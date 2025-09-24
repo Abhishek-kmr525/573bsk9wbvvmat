@@ -9,9 +9,26 @@ try {
         throw new Exception('OAuth authorization was denied or failed: ' . $_GET['error']);
     }
     
-    // Verify state parameter
-    if (!isset($_GET['state']) || !isset($_SESSION['oauth_state']) || $_GET['state'] !== $_SESSION['oauth_state']) {
-        throw new Exception('Invalid state parameter. Possible CSRF attack.');
+    // Verify state parameter with cookie fallback if session lost
+    $receivedState = $_GET['state'] ?? null;
+    $sessionState = $_SESSION['oauth_state'] ?? null;
+
+    if (!$receivedState) {
+        throw new Exception('Missing state parameter. Possible CSRF attack.');
+    }
+
+    if ($sessionState === null) {
+        $cookieState = $_COOKIE['oauth_state'] ?? null;
+        if ($cookieState === null || $receivedState !== $cookieState) {
+            throw new Exception('Invalid state parameter. Possible CSRF attack.');
+        }
+        // Restore session state for consistency and clear cookie
+        $_SESSION['oauth_state'] = $cookieState;
+        setcookie('oauth_state', '', time() - 3600, '/');
+    } else {
+        if ($receivedState !== $sessionState) {
+            throw new Exception('Invalid state parameter. Possible CSRF attack.');
+        }
     }
     
     // Get authorization code
@@ -54,8 +71,9 @@ try {
         logError("Failed to store LinkedIn token: " . $e->getMessage());
     }
     
-    // Clean up session
+    // Clean up session and cookie
     unset($_SESSION['oauth_state']);
+    setcookie('oauth_state', '', time() - 3600, '/');
     
     // Set success message
     if (isset($customer['existing'])) {
