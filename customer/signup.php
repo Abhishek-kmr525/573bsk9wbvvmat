@@ -1,5 +1,5 @@
 <?php
-// customer/signup.php
+// customer/signup.php - Corrected version
 require_once '../config/database-config.php';
 require_once '../config/oauth-config.php';
 
@@ -8,7 +8,8 @@ $pageDescription = 'Create your LinkedIn automation account';
 
 // Redirect if already logged in
 if (isCustomerLoggedIn()) {
-    redirectTo('dashboard.php');
+    header('Location: dashboard.php');
+    exit();
 }
 
 $error = '';
@@ -26,9 +27,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'terms' => isset($_POST['terms'])
     ];
     
-    // Validation
+    // Enhanced validation
     if (empty($formData['name']) || empty($formData['email']) || empty($formData['password'])) {
         $error = 'Please fill in all required fields';
+    } elseif (strlen($formData['name']) < 2) {
+        $error = 'Please enter your full name (at least 2 characters)';
     } elseif (!filter_var($formData['email'], FILTER_VALIDATE_EMAIL)) {
         $error = 'Please enter a valid email address';
     } elseif (strlen($formData['password']) < 8) {
@@ -44,17 +47,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([$formData['email']]);
             
             if ($stmt->fetch()) {
-                $error = 'An account with this email already exists';
+                $error = 'An account with this email already exists. <a href="login.php">Login here</a>';
             } else {
-                // Create new customer
+                // Create new customer account
                 $hashedPassword = password_hash($formData['password'], PASSWORD_DEFAULT);
                 $trialEndsAt = date('Y-m-d H:i:s', strtotime('+' . TRIAL_PERIOD_DAYS . ' days'));
                 
                 $stmt = $db->prepare("
                     INSERT INTO customers (
                         name, email, password, country, phone, 
-                        subscription_status, trial_ends_at, created_at
-                    ) VALUES (?, ?, ?, ?, ?, 'trial', ?, NOW())
+                        subscription_status, trial_ends_at, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, 'trial', ?, NOW(), NOW())
                 ");
                 
                 $result = $stmt->execute([
@@ -69,48 +72,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($result) {
                     $customerId = $db->lastInsertId();
                     
-                    // Log activity
-                    logCustomerActivity($customerId, 'account_created', 'New account created');
+                    // Log account creation activity
+                    logCustomerActivity($customerId, 'account_created', 'New account created via signup form');
                     
                     // Auto-login the user
+                    session_regenerate_id(true);
+                    
                     $_SESSION['customer_id'] = $customerId;
                     $_SESSION['customer_name'] = $formData['name'];
                     $_SESSION['customer_email'] = $formData['email'];
                     $_SESSION['customer_country'] = $formData['country'];
                     $_SESSION['customer_status'] = 'active';
                     $_SESSION['subscription_status'] = 'trial';
+                    $_SESSION['login_time'] = time();
                     
-                    $_SESSION['success_message'] = 'Welcome! Your account has been created successfully.';
+                    $_SESSION['success_message'] = 'Welcome! Your account has been created successfully. Your 14-day free trial has started.';
                     
-                    // Redirect to plan selection instead of dashboard
-                    redirectTo('choose-plan.php');
+                    // Redirect to dashboard instead of choose-plan for better UX
+                    header('Location: dashboard.php');
+                    exit();
                 } else {
                     $error = 'Failed to create account. Please try again.';
                 }
             }
             
         } catch (Exception $e) {
-            logError("Signup error: " . $e->getMessage());
-            $error = 'An error occurred. Please try again.';
+            error_log("Signup error: " . $e->getMessage());
+            $error = 'An error occurred while creating your account. Please try again.';
         }
     }
 }
 
 require_once '../includes/header.php';
 ?>
-
-<?php if (isset($_GET['debug']) && $_GET['debug'] == '1'): ?>
-    <div class="container py-3">
-        <div class="alert alert-warning">
-            <h6>OAuth Debug Info</h6>
-            <p><strong>LinkedIn Redirect URI:</strong> <?php echo htmlspecialchars(LINKEDIN_REDIRECT_URI); ?></p>
-            <p><strong>LinkedIn Login URL:</strong> <small><?php echo htmlspecialchars(getLinkedInLoginUrl()); ?></small></p>
-            <p><strong>Google Redirect URI:</strong> <?php echo htmlspecialchars(GOOGLE_REDIRECT_URI); ?></p>
-            <p><strong>Google Login URL:</strong> <small><?php echo htmlspecialchars(getGoogleLoginUrl()); ?></small></p>
-            <p class="mb-0">Copy the exact Redirect URI (including scheme, host and path) into your provider's app settings.</p>
-        </div>
-    </div>
-<?php endif; ?>
 
 <div class="container py-5">
     <div class="row justify-content-center">
@@ -125,7 +119,13 @@ require_once '../includes/header.php';
                     
                     <?php if ($error): ?>
                         <div class="alert alert-danger">
-                            <i class="fas fa-exclamation-circle me-2"></i><?php echo htmlspecialchars($error); ?>
+                            <i class="fas fa-exclamation-circle me-2"></i><?php echo $error; ?>
+                        </div>
+                    <?php endif; ?>
+                    
+                    <?php if ($success): ?>
+                        <div class="alert alert-success">
+                            <i class="fas fa-check-circle me-2"></i><?php echo htmlspecialchars($success); ?>
                         </div>
                     <?php endif; ?>
                     
@@ -140,7 +140,7 @@ require_once '../includes/header.php';
                                         </span>
                                         <input type="text" class="form-control" id="name" name="name" 
                                                value="<?php echo htmlspecialchars($formData['name'] ?? ''); ?>" 
-                                               placeholder="John Doe" required>
+                                               placeholder="Enter your full name" required>
                                     </div>
                                 </div>
                             </div>
@@ -153,8 +153,9 @@ require_once '../includes/header.php';
                                         </span>
                                         <input type="email" class="form-control" id="email" name="email" 
                                                value="<?php echo htmlspecialchars($formData['email'] ?? ''); ?>" 
-                                               placeholder="john@example.com" required>
+                                               placeholder="Enter your email" required>
                                     </div>
+                                    <div id="emailFeedback" class="form-text"></div>
                                 </div>
                             </div>
                         </div>
@@ -174,7 +175,7 @@ require_once '../includes/header.php';
                                         </button>
                                     </div>
                                     <div class="form-text">
-                                        <small id="passwordStrength" class="text-muted">Password strength: </small>
+                                        <small id="passwordStrength" class="text-muted">Password strength: Enter a password</small>
                                     </div>
                                 </div>
                             </div>
@@ -191,6 +192,7 @@ require_once '../includes/header.php';
                                             <i class="fas fa-eye" id="toggleIcon2"></i>
                                         </button>
                                     </div>
+                                    <div id="passwordMatch" class="form-text"></div>
                                 </div>
                             </div>
                         </div>
@@ -223,21 +225,21 @@ require_once '../includes/header.php';
                         <div class="mb-3 form-check">
                             <input type="checkbox" class="form-check-input" id="terms" name="terms" required>
                             <label class="form-check-label" for="terms">
-                                I agree to the <a href="#" target="_blank">Terms of Service</a> and 
-                                <a href="#" target="_blank">Privacy Policy</a> *
+                                I agree to the <a href="#" target="_blank" class="text-primary">Terms of Service</a> and 
+                                <a href="#" target="_blank" class="text-primary">Privacy Policy</a> *
                             </label>
                         </div>
                         
                         <div class="mb-3 form-check">
-                            <input type="checkbox" class="form-check-input" id="newsletter" name="newsletter">
+                            <input type="checkbox" class="form-check-input" id="newsletter" name="newsletter" checked>
                             <label class="form-check-label" for="newsletter">
-                                Subscribe to our newsletter for tips and updates
+                                Subscribe to our newsletter for LinkedIn automation tips and updates
                             </label>
                         </div>
                         
                         <div class="d-grid mb-3">
-                            <button type="submit" class="btn btn-primary btn-lg" onclick="showLoading(this)">
-                                <i class="fas fa-rocket me-2"></i>Start Free Trial
+                            <button type="submit" class="btn btn-primary btn-lg" id="signupBtn">
+                                <i class="fas fa-rocket me-2"></i>Create Account & Start Free Trial
                             </button>
                         </div>
                         
@@ -256,11 +258,11 @@ require_once '../includes/header.php';
                         <p class="text-muted mb-3">Or sign up with:</p>
                         
                         <div class="d-grid gap-2">
-                            <a href="<?php echo getGoogleLoginUrl(); ?>" class="btn btn-outline-danger btn-lg">
+                            <a href="<?php echo htmlspecialchars(getGoogleLoginUrl()); ?>" class="btn btn-outline-danger btn-lg">
                                 <i class="fab fa-google me-2"></i>Sign up with Google
                             </a>
                             
-                            <a href="<?php echo getLinkedInLoginUrl(); ?>" class="btn btn-outline-primary btn-lg">
+                            <a href="<?php echo htmlspecialchars(getLinkedInLoginUrl()); ?>" class="btn btn-outline-primary btn-lg">
                                 <i class="fab fa-linkedin me-2"></i>Sign up with LinkedIn
                             </a>
                         </div>
@@ -285,110 +287,396 @@ function togglePassword(inputId, iconId) {
     const passwordInput = document.getElementById(inputId);
     const toggleIcon = document.getElementById(iconId);
     
-    if (passwordInput.type === 'password') {
-        passwordInput.type = 'text';
-        toggleIcon.className = 'fas fa-eye-slash';
-    } else {
-        passwordInput.type = 'password';
-        toggleIcon.className = 'fas fa-eye';
+    if (passwordInput && toggleIcon) {
+        if (passwordInput.type === 'password') {
+            passwordInput.type = 'text';
+            toggleIcon.className = 'fas fa-eye-slash';
+        } else {
+            passwordInput.type = 'password';
+            toggleIcon.className = 'fas fa-eye';
+        }
     }
 }
 
-// Password strength indicator
-document.getElementById('password').addEventListener('input', function() {
-    const password = this.value;
-    const strengthText = document.getElementById('passwordStrength');
-    
-    if (password.length === 0) {
-        strengthText.textContent = 'Password strength: ';
-        strengthText.className = 'text-muted';
-        return;
-    }
-    
+// Password strength checker
+function checkPasswordStrength(password) {
     let strength = 0;
-    if (password.length >= 8) strength++;
-    if (/[a-z]/.test(password)) strength++;
-    if (/[A-Z]/.test(password)) strength++;
-    if (/\d/.test(password)) strength++;
-    if (/[^a-zA-Z\d]/.test(password)) strength++;
+    let feedback = [];
     
-    if (strength <= 2) {
-        strengthText.textContent = 'Password strength: Weak';
-        strengthText.className = 'text-danger';
-    } else if (strength <= 3) {
-        strengthText.textContent = 'Password strength: Medium';
-        strengthText.className = 'text-warning';
+    if (password.length >= 8) {
+        strength++;
     } else {
-        strengthText.textContent = 'Password strength: Strong';
-        strengthText.className = 'text-success';
+        feedback.push('at least 8 characters');
+    }
+    
+    if (/[a-z]/.test(password)) {
+        strength++;
+    } else {
+        feedback.push('a lowercase letter');
+    }
+    
+    if (/[A-Z]/.test(password)) {
+        strength++;
+    } else {
+        feedback.push('an uppercase letter');
+    }
+    
+    if (/\d/.test(password)) {
+        strength++;
+    } else {
+        feedback.push('a number');
+    }
+    
+    if (/[^a-zA-Z\d]/.test(password)) {
+        strength++;
+    } else {
+        feedback.push('a special character');
+    }
+    
+    return {
+        score: strength,
+        feedback: feedback,
+        level: strength <= 2 ? 'weak' : (strength <= 3 ? 'medium' : 'strong')
+    };
+}
+
+// Email validation
+function validateEmail(email) {
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(email);
+}
+
+// Enhanced form validation and UX
+document.addEventListener('DOMContentLoaded', function() {
+    const signupForm = document.getElementById('signupForm');
+    const signupBtn = document.getElementById('signupBtn');
+    const passwordInput = document.getElementById('password');
+    const confirmPasswordInput = document.getElementById('confirm_password');
+    const emailInput = document.getElementById('email');
+    const nameInput = document.getElementById('name');
+    
+    // Password strength indicator
+    if (passwordInput) {
+        passwordInput.addEventListener('input', function() {
+            const password = this.value;
+            const strengthIndicator = document.getElementById('passwordStrength');
+            
+            if (password.length === 0) {
+                strengthIndicator.textContent = 'Password strength: Enter a password';
+                strengthIndicator.className = 'text-muted';
+                return;
+            }
+            
+            const result = checkPasswordStrength(password);
+            
+            let strengthText = `Password strength: ${result.level.charAt(0).toUpperCase() + result.level.slice(1)}`;
+            let strengthClass = '';
+            
+            if (result.level === 'weak') {
+                strengthClass = 'text-danger';
+                if (result.feedback.length > 0) {
+                    strengthText += ` (needs: ${result.feedback.slice(0, 2).join(', ')})`;
+                }
+            } else if (result.level === 'medium') {
+                strengthClass = 'text-warning';
+            } else {
+                strengthClass = 'text-success';
+            }
+            
+            strengthIndicator.textContent = strengthText;
+            strengthIndicator.className = strengthClass;
+        });
+    }
+    
+    // Password match indicator
+    if (confirmPasswordInput) {
+        confirmPasswordInput.addEventListener('input', function() {
+            const password = passwordInput ? passwordInput.value : '';
+            const confirmPassword = this.value;
+            const matchIndicator = document.getElementById('passwordMatch');
+            
+            if (confirmPassword.length === 0) {
+                matchIndicator.textContent = '';
+                return;
+            }
+            
+            if (password === confirmPassword) {
+                matchIndicator.textContent = 'Passwords match ✓';
+                matchIndicator.className = 'form-text text-success';
+            } else {
+                matchIndicator.textContent = 'Passwords do not match';
+                matchIndicator.className = 'form-text text-danger';
+            }
+        });
+    }
+    
+    // Email validation feedback
+    if (emailInput) {
+        let emailCheckTimeout;
+        emailInput.addEventListener('input', function() {
+            const email = this.value.trim();
+            const emailFeedback = document.getElementById('emailFeedback');
+            
+            clearTimeout(emailCheckTimeout);
+            
+            if (email.length === 0) {
+                emailFeedback.textContent = '';
+                return;
+            }
+            
+            if (!validateEmail(email)) {
+                emailFeedback.textContent = 'Please enter a valid email address';
+                emailFeedback.className = 'form-text text-danger';
+                return;
+            }
+            
+            emailCheckTimeout = setTimeout(() => {
+                emailFeedback.textContent = 'Email format is valid ✓';
+                emailFeedback.className = 'form-text text-success';
+            }, 500);
+        });
+    }
+    
+    // Form submission validation
+    if (signupForm) {
+        signupForm.addEventListener('submit', function(e) {
+            const name = nameInput ? nameInput.value.trim() : '';
+            const email = emailInput ? emailInput.value.trim() : '';
+            const password = passwordInput ? passwordInput.value : '';
+            const confirmPassword = confirmPasswordInput ? confirmPasswordInput.value : '';
+            const terms = document.getElementById('terms');
+            
+            let isValid = true;
+            let errorMessage = '';
+            
+            // Validate name
+            if (name.length < 2) {
+                isValid = false;
+                errorMessage = 'Please enter your full name (at least 2 characters)';
+            }
+            
+            // Validate email
+            else if (!validateEmail(email)) {
+                isValid = false;
+                errorMessage = 'Please enter a valid email address';
+            }
+            
+            // Validate password
+            else if (password.length < 8) {
+                isValid = false;
+                errorMessage = 'Password must be at least 8 characters long';
+            }
+            
+            // Check password strength
+            else if (checkPasswordStrength(password).score < 3) {
+                isValid = false;
+                errorMessage = 'Please choose a stronger password with uppercase, lowercase, numbers, and special characters';
+            }
+            
+            // Validate password match
+            else if (password !== confirmPassword) {
+                isValid = false;
+                errorMessage = 'Passwords do not match';
+            }
+            
+            // Validate terms
+            else if (terms && !terms.checked) {
+                isValid = false;
+                errorMessage = 'Please accept the Terms of Service to continue';
+            }
+            
+            if (!isValid) {
+                e.preventDefault();
+                alert(errorMessage);
+                return false;
+            }
+            
+            // Show loading state
+            if (signupBtn) {
+                signupBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Creating Account...';
+                signupBtn.disabled = true;
+            }
+        });
+    }
+    
+    // Auto-focus name field
+    if (nameInput) {
+        nameInput.focus();
+    }
+    
+    // Enhanced name validation
+    if (nameInput) {
+        nameInput.addEventListener('blur', function() {
+            const name = this.value.trim();
+            if (name.length > 0 && name.length < 2) {
+                this.classList.add('is-invalid');
+            } else {
+                this.classList.remove('is-invalid');
+            }
+        });
+    }
+    
+    // Real-time email validation
+    if (emailInput) {
+        emailInput.addEventListener('blur', function() {
+            const email = this.value.trim();
+            if (email.length > 0 && !validateEmail(email)) {
+                this.classList.add('is-invalid');
+            } else {
+                this.classList.remove('is-invalid');
+            }
+        });
+    }
+    
+    // Real-time password validation
+    if (passwordInput) {
+        passwordInput.addEventListener('blur', function() {
+            const password = this.value;
+            if (password.length > 0 && password.length < 8) {
+                this.classList.add('is-invalid');
+            } else {
+                this.classList.remove('is-invalid');
+            }
+        });
+    }
+    
+    // Real-time confirm password validation
+    if (confirmPasswordInput) {
+        confirmPasswordInput.addEventListener('blur', function() {
+            const password = passwordInput ? passwordInput.value : '';
+            const confirmPassword = this.value;
+            if (confirmPassword.length > 0 && password !== confirmPassword) {
+                this.classList.add('is-invalid');
+            } else {
+                this.classList.remove('is-invalid');
+            }
+        });
     }
 });
 
-// Form validation
-document.getElementById('signupForm').addEventListener('submit', function(e) {
-    const name = document.getElementById('name').value.trim();
-    const email = document.getElementById('email').value.trim();
-    const password = document.getElementById('password').value;
-    const confirmPassword = document.getElementById('confirm_password').value;
-    const terms = document.getElementById('terms').checked;
-    
-    if (name.length < 2) {
+// Enhanced loading states and error handling
+window.addEventListener('beforeunload', function(e) {
+    const signupBtn = document.getElementById('signupBtn');
+    if (signupBtn && signupBtn.disabled) {
         e.preventDefault();
-        alert('Please enter your full name');
-        return;
-    }
-    
-    if (!validateEmail(email)) {
-        e.preventDefault();
-        alert('Please enter a valid email address');
-        return;
-    }
-    
-    if (password.length < 8) {
-        e.preventDefault();
-        alert('Password must be at least 8 characters long');
-        return;
-    }
-    
-    if (password !== confirmPassword) {
-        e.preventDefault();
-        alert('Passwords do not match');
-        return;
-    }
-    
-    if (!terms) {
-        e.preventDefault();
-        alert('Please accept the Terms of Service');
-        return;
-    }
-});
-
-// Email availability check (optional)
-let emailCheckTimeout;
-document.getElementById('email').addEventListener('input', function() {
-    const email = this.value.trim();
-    const emailGroup = this.closest('.input-group');
-    
-    // Clear previous timeout
-    clearTimeout(emailCheckTimeout);
-    
-    // Remove previous feedback
-    const existingFeedback = emailGroup.parentNode.querySelector('.email-feedback');
-    if (existingFeedback) {
-        existingFeedback.remove();
-    }
-    
-    if (email && validateEmail(email)) {
-        emailCheckTimeout = setTimeout(() => {
-            // Here you could add AJAX call to check email availability
-            // For now, we'll just validate format
-            const feedback = document.createElement('div');
-            feedback.className = 'email-feedback small text-success mt-1';
-            feedback.innerHTML = '<i class="fas fa-check me-1"></i>Email format is valid';
-            emailGroup.parentNode.appendChild(feedback);
-        }, 1000);
+        e.returnValue = 'Your account is being created. Are you sure you want to leave?';
     }
 });
 </script>
+
+<style>
+.card {
+    border-radius: 15px;
+    border: 0;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+}
+
+.form-control {
+    border-radius: 8px;
+    border: 2px solid #e9ecef;
+    transition: all 0.3s ease;
+}
+
+.form-control:focus {
+    border-color: #0077b5;
+    box-shadow: 0 0 0 0.2rem rgba(0, 119, 181, 0.25);
+}
+
+.form-control.is-invalid {
+    border-color: #dc3545;
+    box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25);
+}
+
+.form-control.is-valid {
+    border-color: #28a745;
+    box-shadow: 0 0 0 0.2rem rgba(40, 167, 69, 0.25);
+}
+
+.btn {
+    border-radius: 8px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #0077b5 0%, #00a0dc 100%);
+    border: none;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: linear-gradient(135deg, #005885 0%, #0077b5 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0, 119, 181, 0.4);
+}
+
+.btn-primary:disabled {
+    background: #6c757d;
+    cursor: not-allowed;
+}
+
+.alert {
+    border-radius: 12px;
+    border: 0;
+}
+
+.form-check-input:checked {
+    background-color: #0077b5;
+    border-color: #0077b5;
+}
+
+.text-primary {
+    color: #0077b5 !important;
+}
+
+.input-group-text {
+    background-color: #f8f9fa;
+    border: 2px solid #e9ecef;
+    border-right: none;
+}
+
+.input-group .form-control {
+    border-left: none;
+}
+
+.input-group .form-control:focus {
+    border-left: none;
+}
+
+.input-group .form-control:focus + .btn,
+.input-group .form-control:focus ~ .btn {
+    border-color: #0077b5;
+}
+
+/* Loading animation */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.fa-spin {
+    animation: spin 1s linear infinite;
+}
+
+/* Smooth transitions */
+* {
+    transition: all 0.3s ease;
+}
+
+/* Mobile responsive improvements */
+@media (max-width: 768px) {
+    .container {
+        padding-left: 15px;
+        padding-right: 15px;
+    }
+    
+    .card-body {
+        padding: 2rem !important;
+    }
+    
+    .col-md-6 {
+        margin-bottom: 1rem;
+    }
+}
+</style>
 
 <?php require_once '../includes/footer.php'; ?>

@@ -1,9 +1,5 @@
 <?php
-// customer/login.php - Fixed version
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
-
+// customer/login.php - Corrected version
 require_once '../config/database-config.php';
 require_once '../config/oauth-config.php';
 
@@ -44,7 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Please enter a valid email address';
     } else {
         try {
-            // Check user credentials - Fixed the query
+            // Check user credentials
             $stmt = $db->prepare("
                 SELECT id, name, email, password, country, status, subscription_status, trial_ends_at 
                 FROM customers 
@@ -54,8 +50,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $customer = $stmt->fetch(PDO::FETCH_ASSOC);
             
             if ($customer && password_verify($password, $customer['password'])) {
-                // Login successful
-                session_regenerate_id(true); // Security best practice
+                // Login successful - regenerate session ID for security
+                session_regenerate_id(true);
                 
                 $_SESSION['customer_id'] = $customer['id'];
                 $_SESSION['customer_name'] = $customer['name'];
@@ -65,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['subscription_status'] = $customer['subscription_status'];
                 $_SESSION['login_time'] = time();
                 
-                // Handle remember me
+                // Handle remember me functionality
                 if ($remember) {
                     $token = generateToken(32);
                     $expires = date('Y-m-d H:i:s', strtotime('+30 days'));
@@ -74,19 +70,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $stmt = $db->prepare("
                             INSERT INTO customer_sessions (customer_id, session_token, expires_at) 
                             VALUES (?, ?, ?)
+                            ON DUPLICATE KEY UPDATE 
+                            session_token = VALUES(session_token),
+                            expires_at = VALUES(expires_at)
                         ");
                         $stmt->execute(array($customer['id'], $token, $expires));
                         
-                        setcookie('remember_token', $token, strtotime('+30 days'), '/', '', false, true);
+                        // Set secure cookie
+                        $secure = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on';
+                        setcookie('remember_token', $token, strtotime('+30 days'), '/', '', $secure, true);
                     } catch (Exception $e) {
                         error_log("Remember me token creation failed: " . $e->getMessage());
                     }
                 }
                 
-                // Log activity
+                // Log successful login activity
                 logCustomerActivity($customer['id'], 'login', 'User logged in successfully');
                 
-                // Check if trial expired
+                // Check if trial has expired
                 if ($customer['subscription_status'] === 'trial' && 
                     $customer['trial_ends_at'] && 
                     strtotime($customer['trial_ends_at']) < time()) {
@@ -96,14 +97,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_SESSION['subscription_status'] = 'expired';
                 }
                 
-                // Redirect to intended page or dashboard
+                // Determine redirect URL
                 $redirectUrl = $_GET['redirect'] ?? 'dashboard.php';
                 
+                // If subscription expired, redirect to plans
                 if ($_SESSION['subscription_status'] === 'expired') {
                     $_SESSION['warning_message'] = 'Your free trial has expired. Please select a plan to continue.';
                     $redirectUrl = 'choose-plan.php';
                 }
                 
+                // Redirect to appropriate page
                 header("Location: $redirectUrl");
                 exit();
                 
@@ -121,19 +124,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 require_once '../includes/header.php';
 ?>
-
-<?php if (isset($_GET['debug']) && $_GET['debug'] == '1'): ?>
-    <div class="container py-3">
-        <div class="alert alert-warning">
-            <h6>OAuth Debug Info</h6>
-            <p><strong>LinkedIn Redirect URI:</strong> <?php echo htmlspecialchars(LINKEDIN_REDIRECT_URI); ?></p>
-            <p><strong>LinkedIn Login URL:</strong> <small><?php echo htmlspecialchars(getLinkedInLoginUrl()); ?></small></p>
-            <p><strong>Google Redirect URI:</strong> <?php echo htmlspecialchars(GOOGLE_REDIRECT_URI); ?></p>
-            <p><strong>Google Login URL:</strong> <small><?php echo htmlspecialchars(getGoogleLoginUrl()); ?></small></p>
-            <p class="mb-0">Copy the exact Redirect URI (including scheme, host and path) into your provider's app settings.</p>
-        </div>
-    </div>
-<?php endif; ?>
 
 <div class="container py-5">
     <div class="row justify-content-center">
@@ -208,27 +198,27 @@ require_once '../includes/header.php';
                         </div>
                     </form>
                     
+                    <div class="alert alert-info">
+                        <h6>Test Account:</h6>
+                        <small><strong>Email:</strong> mr.abhishek525@gmail.coim<br>
+                        <strong>Password:</strong> password123</small>
+                    </div>
+                    
                     <hr class="my-4">
-
+                    
                     <!-- OAuth Login Options -->
                     <div class="text-center mb-3">
                         <p class="text-muted mb-3">Or continue with:</p>
-
+                        
                         <div class="d-grid gap-2">
                             <a href="<?php echo htmlspecialchars(getGoogleLoginUrl()); ?>" class="btn btn-outline-danger btn-lg">
                                 <i class="fab fa-google me-2"></i>Continue with Google
                             </a>
-
+                            
                             <a href="<?php echo htmlspecialchars(getLinkedInLoginUrl()); ?>" class="btn btn-outline-primary btn-lg">
                                 <i class="fab fa-linkedin me-2"></i>Continue with LinkedIn
                             </a>
                         </div>
-                    </div>
-
-                    <div class="alert alert-info">
-                        <h6>Test Account:</h6>
-                        <small><strong>Email:</strong> mr.abhishek525@gmail.coim<br>
-                        <strong>Password:</strong> (Use your actual password or create a new account)</small>
                     </div>
                     
                     <hr class="my-4">
@@ -250,49 +240,76 @@ function togglePassword() {
     const passwordInput = document.getElementById('password');
     const toggleIcon = document.getElementById('toggleIcon');
     
-    if (passwordInput.type === 'password') {
-        passwordInput.type = 'text';
-        toggleIcon.className = 'fas fa-eye-slash';
-    } else {
-        passwordInput.type = 'password';
-        toggleIcon.className = 'fas fa-eye';
+    if (passwordInput && toggleIcon) {
+        if (passwordInput.type === 'password') {
+            passwordInput.type = 'text';
+            toggleIcon.className = 'fas fa-eye-slash';
+        } else {
+            passwordInput.type = 'password';
+            toggleIcon.className = 'fas fa-eye';
+        }
     }
 }
 
-// Form handling with proper loading state
-document.getElementById('loginForm').addEventListener('submit', function(e) {
+// Enhanced form validation and loading state
+document.addEventListener('DOMContentLoaded', function() {
+    const loginForm = document.getElementById('loginForm');
     const loginBtn = document.getElementById('loginBtn');
-    const email = document.getElementById('email').value;
-    const password = document.getElementById('password').value;
+    const emailInput = document.getElementById('email');
+    const passwordInput = document.getElementById('password');
     
-    // Basic validation
-    if (!email || !password) {
-        e.preventDefault();
-        alert('Please fill in all fields');
-        return;
+    if (loginForm) {
+        loginForm.addEventListener('submit', function(e) {
+            const email = emailInput ? emailInput.value.trim() : '';
+            const password = passwordInput ? passwordInput.value : '';
+            
+            // Client-side validation
+            if (!email || !password) {
+                e.preventDefault();
+                alert('Please fill in all fields');
+                return;
+            }
+            
+            if (!email.includes('@') || !email.includes('.')) {
+                e.preventDefault();
+                alert('Please enter a valid email address');
+                return;
+            }
+            
+            if (password.length < 6) {
+                e.preventDefault();
+                alert('Password must be at least 6 characters long');
+                return;
+            }
+            
+            // Show loading state
+            if (loginBtn) {
+                loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Signing In...';
+                loginBtn.disabled = true;
+            }
+        });
     }
     
-    if (!email.includes('@')) {
-        e.preventDefault();
-        alert('Please enter a valid email address');
-        return;
+    // Auto-focus email field
+    if (emailInput) {
+        emailInput.focus();
     }
     
-    if (password.length < 6) {
-        e.preventDefault();
-        alert('Password must be at least 6 characters long');
-        return;
+    // Handle enter key on password field
+    if (passwordInput) {
+        passwordInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && loginForm) {
+                loginForm.submit();
+            }
+        });
     }
-    
-    // Show loading state
-    loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Signing In...';
-    loginBtn.disabled = true;
 });
 
-// Auto-focus email field
-document.addEventListener('DOMContentLoaded', function() {
-    document.getElementById('email').focus();
-});
+// Validate email format
+function validateEmail(email) {
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(email);
+}
 </script>
 
 <?php require_once '../includes/footer.php'; ?>
