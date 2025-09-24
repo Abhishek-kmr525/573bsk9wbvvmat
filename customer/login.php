@@ -208,6 +208,23 @@ require_once '../includes/header.php';
                         </div>
                     </form>
                     
+                    <hr class="my-4">
+
+                    <!-- OAuth Login Options -->
+                    <div class="text-center mb-3">
+                        <p class="text-muted mb-3">Or continue with:</p>
+
+                        <div class="d-grid gap-2">
+                            <a href="<?php echo htmlspecialchars(getGoogleLoginUrl()); ?>" class="btn btn-outline-danger btn-lg">
+                                <i class="fab fa-google me-2"></i>Continue with Google
+                            </a>
+
+                            <a href="<?php echo htmlspecialchars(getLinkedInLoginUrl()); ?>" class="btn btn-outline-primary btn-lg">
+                                <i class="fab fa-linkedin me-2"></i>Continue with LinkedIn
+                            </a>
+                        </div>
+                    </div>
+
                     <div class="alert alert-info">
                         <h6>Test Account:</h6>
                         <small><strong>Email:</strong> mr.abhishek525@gmail.coim<br>
