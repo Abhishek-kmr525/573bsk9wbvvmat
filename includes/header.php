@@ -83,13 +83,13 @@ if (!isset($pageDescription)) $pageDescription = 'Automate your LinkedIn presenc
                 <ul class="navbar-nav me-auto">
                     <?php if (isCustomerLoggedIn()): ?>
                         <li class="nav-item">
-                            <a class="nav-link" href="dashboard.php">Dashboard</a>
+                            <a class="nav-link" href="/customer/dashboard.php">Dashboard</a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" href="create-automation.php">Create Automation</a>
+                            <a class="nav-link" href="/customer/create-automation.php">Create Automation</a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" href="analytics.php">Analytics</a>
+                            <a class="nav-link" href="/customer/analytics.php">Analytics</a>
                         </li>
                     <?php endif; ?>
                 </ul>
@@ -127,17 +127,17 @@ if (!isset($pageDescription)) $pageDescription = 'Automate your LinkedIn presenc
                                 <?php echo htmlspecialchars($_SESSION['customer_name'] ?? 'Account'); ?>
                             </button>
                             <ul class="dropdown-menu">
-                                <li><a class="dropdown-item" href="profile.php"><i class="fas fa-user me-2"></i>Profile</a></li>
-                                <li><a class="dropdown-item" href="billing.php"><i class="fas fa-credit-card me-2"></i>Billing</a></li>
-                                <li><a class="dropdown-item" href="settings.php"><i class="fas fa-cog me-2"></i>Settings</a></li>
+                                <li><a class="dropdown-item" href="/customer/profile.php"><i class="fas fa-user me-2"></i>Profile</a></li>
+                                <li><a class="dropdown-item" href="/customer/billing.php"><i class="fas fa-credit-card me-2"></i>Billing</a></li>
+                                <li><a class="dropdown-item" href="/customer/settings.php"><i class="fas fa-cog me-2"></i>Settings</a></li>
                                 <li><hr class="dropdown-divider"></li>
-                                <li><a class="dropdown-item" href="logout.php"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
+                                <li><a class="dropdown-item" href="/customer/logout.php"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
                             </ul>
                         </div>
                     <?php else: ?>
                         <!-- Guest user buttons -->
-                        <a href="/linkedin_automator/customer/login.php" class="btn btn-outline-primary btn-sm">Login</a>
-                        <a href="/linkedin_automator/customer/signup.php" class="btn btn-primary btn-sm">Sign Up</a>
+                        <a href="/customer/login.php" class="btn btn-outline-primary btn-sm">Login</a>
+                        <a href="/customer/signup.php" class="btn btn-primary btn-sm">Sign Up</a>
                     <?php endif; ?>
                 </div>
             </div>
