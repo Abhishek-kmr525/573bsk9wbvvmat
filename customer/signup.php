@@ -99,6 +99,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 require_once '../includes/header.php';
 ?>
 
+<?php if (isset($_GET['debug']) && $_GET['debug'] == '1'): ?>
+    <div class="container py-3">
+        <div class="alert alert-warning">
+            <h6>OAuth Debug Info</h6>
+            <p><strong>LinkedIn Redirect URI:</strong> <?php echo htmlspecialchars(LINKEDIN_REDIRECT_URI); ?></p>
+            <p><strong>LinkedIn Login URL:</strong> <small><?php echo htmlspecialchars(getLinkedInLoginUrl()); ?></small></p>
+            <p><strong>Google Redirect URI:</strong> <?php echo htmlspecialchars(GOOGLE_REDIRECT_URI); ?></p>
+            <p><strong>Google Login URL:</strong> <small><?php echo htmlspecialchars(getGoogleLoginUrl()); ?></small></p>
+            <p class="mb-0">Copy the exact Redirect URI (including scheme, host and path) into your provider's app settings.</p>
+        </div>
+    </div>
+<?php endif; ?>
+
 <div class="container py-5">
     <div class="row justify-content-center">
         <div class="col-md-8 col-lg-6">
